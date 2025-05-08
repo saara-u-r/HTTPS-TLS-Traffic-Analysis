@@ -1,38 +1,40 @@
-import hashlib
+from Crypto.PublicKey import RSA
+from Crypto.Signature import pkcs1_15
+from Crypto.Hash import SHA256
 import json
-import time
-import rsa
 
 class Block:
-    def __init__(self, index, timestamp, encrypted_data, encrypted_sym_key, previous_hash):
+    def __init__(self, index, encrypted_data, encrypted_key, previous_hash):
         self.index = index
-        self.timestamp = timestamp
-        self.encrypted_data = encrypted_data  # Encrypted TLS session metadata
-        self.encrypted_sym_key = encrypted_sym_key  # AES key encrypted with RSA
+        self.encrypted_data = encrypted_data
+        self.encrypted_sym_key = encrypted_key
         self.previous_hash = previous_hash
-        self.hash = self.calculate_hash()
         self.signature = None
 
-    def calculate_hash(self):
-        block_string = json.dumps({
+    def hash(self):
+        """Generate SHA-256 hash of the block's contents (excluding signature)."""
+        block_contents = {
             'index': self.index,
-            'timestamp': self.timestamp,
-            'encrypted_data': self.encrypted_data.hex(),
-            'encrypted_sym_key': self.encrypted_sym_key.hex(),
+            'encrypted_data': self.encrypted_data.hex() if isinstance(self.encrypted_data, bytes) else self.encrypted_data,
+            'encrypted_sym_key': self.encrypted_sym_key.hex() if isinstance(self.encrypted_sym_key, bytes) else self.encrypted_sym_key,
             'previous_hash': self.previous_hash
-        }, sort_keys=True).encode()
-        return hashlib.sha256(block_string).hexdigest()
+        }
+        return SHA256.new(json.dumps(block_contents, sort_keys=True).encode()).hexdigest()
 
-    def sign_block(self, private_key):
-        message = f'{self.index}{self.timestamp}{self.encrypted_data.hex()}{self.encrypted_sym_key.hex()}{self.previous_hash}'.encode()
-        self.signature = rsa.sign(message, private_key, 'SHA-256')
+    def sign_block(self, private_key_pem):
+        """Sign block using RSA-PKCS#1.5."""
+        key = RSA.import_key(private_key_pem)
+        h = SHA256.new(self.hash().encode())
+        self.signature = pkcs1_15.new(key).sign(h)
 
-    def verify_signature(self, public_key):
+    def verify_signature(self, public_key_pem):
+        """Verify signature."""
+        key = RSA.import_key(public_key_pem)
+        h = SHA256.new(self.hash().encode())
         try:
-            message = f'{self.index}{self.timestamp}{self.encrypted_data.hex()}{self.encrypted_sym_key.hex()}{self.previous_hash}'.encode()
-            rsa.verify(message, self.signature, public_key)
+            pkcs1_15.new(key).verify(h, self.signature)
             return True
-        except rsa.VerificationError:
+        except (ValueError, TypeError):
             return False
 
 class Blockchain:
@@ -40,46 +42,14 @@ class Blockchain:
         self.chain = [self.create_genesis_block()]
 
     def create_genesis_block(self):
-        return Block(0, time.time(), b"Genesis", b"Genesis", "0")
+        """Create the first block in the chain."""
+        genesis = Block(0, "Genesis", "0", "0")
+        genesis.signature = "Genesis"  # No signing for genesis block
+        return genesis
 
-    def get_latest_block(self):
-        return self.chain[-1]
-
-    def add_block(self, encrypted_data, encrypted_sym_key, private_key):
-        prev_block = self.get_latest_block()
-        new_block = Block(
-            index=prev_block.index + 1,
-            timestamp=time.time(),
-            encrypted_data=encrypted_data,
-            encrypted_sym_key=encrypted_sym_key,
-            previous_hash=prev_block.hash
-        )
-        new_block.sign_block(private_key)
-        self.chain.append(new_block)
-
-    def is_chain_valid(self, public_key):
-        for i in range(1, len(self.chain)):
-            curr = self.chain[i]
-            prev = self.chain[i - 1]
-            if curr.hash != curr.calculate_hash():
-                return False
-            if curr.previous_hash != prev.hash:
-                return False
-            if not curr.verify_signature(public_key):
-                return False
-        return True
-
-    def export_to_json(self, filename="blockchain_log.json"):
-        export_data = []
-        for block in self.chain:
-            export_data.append({
-                'index': block.index,
-                'timestamp': block.timestamp,
-                'encrypted_data': block.encrypted_data.hex(),
-                'encrypted_sym_key': block.encrypted_sym_key.hex(),
-                'previous_hash': block.previous_hash,
-                'hash': block.hash,
-                'signature': block.signature.hex() if block.signature else None
-            })
-        with open(filename, 'w') as f:
-            json.dump(export_data, f, indent=4)
+    def add_block(self, encrypted_data, encrypted_key, private_key_pem):
+        """Add a new block to the chain."""
+        previous_hash = self.chain[-1].hash()
+        block = Block(len(self.chain), encrypted_data, encrypted_key, previous_hash)
+        block.sign_block(private_key_pem)
+        self.chain.append(block)
