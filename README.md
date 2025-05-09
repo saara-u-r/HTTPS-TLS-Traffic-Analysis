@@ -21,7 +21,7 @@ This project focuses on analyzing HTTPS/TLS encrypted traffic by integrating **W
 - Rakshitha K (`1RV23CS414`)  
 **Guide**: Prof. Deepika Dash, CSE, RVCE.
 
-## Methodology
+## Timeline
 1. Traffic Capture & Decryption  
 2. Blockchain Log System  
 3. ML Model Training  
