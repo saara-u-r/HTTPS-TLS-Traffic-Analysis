@@ -1,59 +1,75 @@
-from Crypto.PublicKey import RSA
-from Crypto.Signature import pkcs1_15
-from Crypto.Hash import SHA256
+import hashlib
 import json
+import time
 
 class Block:
-    def __init__(self, index, encrypted_data, encrypted_key, previous_hash):
+    def __init__(self, index, timestamp, data, previous_hash):
         self.index = index
-        self.encrypted_data = encrypted_data
-        self.encrypted_sym_key = encrypted_key
+        self.timestamp = timestamp
+        self.data = data  # Encrypted data
         self.previous_hash = previous_hash
-        self.nonce = 0
-        self.signature = None
+        self.hash = self.compute_hash()
 
-    def calculate_hash(self):
+    def compute_hash(self):
         block_string = json.dumps({
-            "index": self.index,
-            "data": self.encrypted_data.hex(),
-            "key": self.encrypted_sym_key.hex(),
-            "previous_hash": self.previous_hash,
-            "nonce": self.nonce
+            'index': self.index,
+            'timestamp': self.timestamp,
+            'data': self.data,
+            'previous_hash': self.previous_hash
         }, sort_keys=True).encode()
-        return SHA256.new(block_string).hexdigest()
 
-    def mine_block(self, difficulty=2):
-        while self.calculate_hash()[:difficulty] != "0" * difficulty:
-            self.nonce += 1
+        return hashlib.sha256(block_string).hexdigest()
 
-    def sign_block(self, private_key_pem):
-        key = RSA.import_key(private_key_pem)
-        h = SHA256.new(self.calculate_hash().encode())
-        self.signature = pkcs1_15.new(key).sign(h)
+    def to_dict(self):
+        return {
+            'index': self.index,
+            'timestamp': self.timestamp,
+            'data': self.data,
+            'previous_hash': self.previous_hash,
+            'hash': self.hash
+        }
 
-    def verify(self, public_key_pem):
-        if self.calculate_hash()[:2] != "00":
-            return False
-        key = RSA.import_key(public_key_pem)
-        h = SHA256.new(self.calculate_hash().encode())
-        try:
-            pkcs1_15.new(key).verify(h, self.signature)
-            return True
-        except:
-            return False
+    @staticmethod
+    def from_dict(block_dict):
+        block = Block(
+            block_dict['index'],
+            block_dict['timestamp'],
+            block_dict['data'],
+            block_dict['previous_hash']
+        )
+        block.hash = block_dict['hash']
+        return block
 
-class Blockchain:  # THIS CLASS MUST BE PRESENT
+class Blockchain:
     def __init__(self):
         self.chain = [self.create_genesis_block()]
 
     def create_genesis_block(self):
-        genesis = Block(0, "Genesis", "0", "0")
-        genesis.signature = "Genesis"
-        return genesis
+        return Block(0, time.time(), "Genesis Block", "0")
 
-    def add_block(self, encrypted_data, encrypted_key, private_key_pem):
-        previous_hash = self.chain[-1].calculate_hash()
-        block = Block(len(self.chain), encrypted_data, encrypted_key, previous_hash)
-        block.mine_block()
-        block.sign_block(private_key_pem)
-        self.chain.append(block)
+    def get_last_block(self):
+        return self.chain[-1]
+
+    def add_block(self, data):
+        last_block = self.get_last_block()
+        new_block = Block(
+            index=last_block.index + 1,
+            timestamp=time.time(),
+            data=data,
+            previous_hash=last_block.hash
+        )
+        self.chain.append(new_block)
+        return new_block
+
+    def save_chain(self, filename):
+        with open(filename, 'w') as file:
+            json.dump([block.to_dict() for block in self.chain], file, indent=4)
+
+    def load_chain(self, filename):
+        try:
+            with open(filename, 'r') as file:
+                chain_data = json.load(file)
+                self.chain = [Block.from_dict(b) for b in chain_data]
+        except FileNotFoundError:
+            print(f"{filename} not found. Creating new blockchain with genesis block.")
+            self.chain = [self.create_genesis_block()]
