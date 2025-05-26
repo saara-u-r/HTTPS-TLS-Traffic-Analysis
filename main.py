@@ -64,8 +64,9 @@ def extract_tls_metadata(tls_layer):
         "TLS EC Point Formats": safe_extract(tls_layer, "handshake_extensions_ec_point_format"),
         "TLS Key Share Group": safe_extract(tls_layer, "handshake_extensions_key_share_group"),
         "TLS Session ID": safe_extract(tls_layer, "handshake_session_id"),
-        "TLS Random": safe_extract(tls_layer, "handshake_random")
-    }
+        "TLS Random": safe_extract(tls_layer, "handshake_random"),
+        "TLS ALPN": safe_extract(tls_layer, "handshake_extensions_alpn_str")
+    }   
 
 def get_dns_hostname(ip):
     try:
